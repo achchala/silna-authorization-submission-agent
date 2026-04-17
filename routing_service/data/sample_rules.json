@@ -1,0 +1,23 @@
+{
+  "payer_aliases": {
+    "ACME": ["ACME Health Plans", "ACME Health", "ACME"]
+  },
+  "routing_by_payer_key": {
+    "ACME": {
+      "outpatient": {
+        "channel": "portal",
+        "destination": "https://portal.example-payer.test/auth",
+        "source": "sample_internal_routing_table",
+        "notes": "Synthetic rule: prefer portal for outpatient when payer matches ACME."
+      }
+    }
+  },
+  "overrides": [
+    {
+      "id": "sample_block_fax",
+      "match_substring": "1-800-555-0199",
+      "action": "deprecate_destination",
+      "reason": "Synthetic incident: legacy fax deprecated — force confirmation if doc only lists this."
+    }
+  ]
+}

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prior auth routing — demo UI</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f5f2;
+      --card: #fff;
+      --border: #c8c4bc;
+      --text: #1a1915;
+      --muted: #5c5a54;
+      --accent: #2d4a3e;
+      --err: #8b2e2e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #141312;
+        --card: #1f1e1c;
+        --border: #3d3a36;
+        --text: #eceae4;
+        --muted: #a9a69e;
+        --accent: #8fbc8f;
+        --err: #f08080;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      font-size: 15px;
+    }
+    .wrap { max-width: 52rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.35rem; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.25rem; }
+    a { color: var(--accent); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.1rem;
+      margin-bottom: 1rem;
+    }
+    label { display: block; font-size: 0.82rem; font-weight: 500; margin-bottom: 0.25rem; color: var(--muted); }
+    textarea, input[type="text"], select {
+      width: 100%;
+      font: inherit;
+      padding: 0.5rem 0.55rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: inherit;
+    }
+    textarea { min-height: 9rem; resize: vertical; }
+    textarea.sm { min-height: 5rem; }
+    .row { display: grid; gap: 0.65rem; margin-bottom: 0.65rem; }
+    @media (min-width: 560px) {
+      .row.cols-2 { grid-template-columns: 1fr 1fr; }
+    }
+    .modes { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.5rem 0 0.75rem; }
+    .modes label { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.95rem; color: var(--text); }
+    button {
+      font: inherit;
+      font-weight: 600;
+      padding: 0.55rem 1rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+    }
+    @media (prefers-color-scheme: dark) {
+      button { color: #111; }
+    }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.75rem; }
+    .hint { font-size: 0.82rem; color: var(--muted); margin-top: 0.35rem; }
+    pre {
+      margin: 0;
+      padding: 0.75rem;
+      overflow: auto;
+      max-height: 32rem;
+      font-size: 0.78rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: rgba(0,0,0,0.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      pre { background: rgba(255,255,255,0.05); }
+    }
+    .err { color: var(--err); font-size: 0.9rem; white-space: pre-wrap; }
+    .tag { font-size: 0.75rem; padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Prior authorization routing</h1>
+    <p class="sub">Synthetic demo only. API docs: <a href="/docs">/docs</a></p>
+
+    <div class="card">
+      <div class="modes">
+        <label><input type="radio" name="mode" value="agent" checked /> Full agent (<code>/v1/agent/run</code>)</label>
+        <label><input type="radio" name="mode" value="dial" /> Agent + Twilio dial (<code>/v1/agent/run-and-dial</code>)</label>
+        <label><input type="radio" name="mode" value="analyze" /> Single-shot (<code>/v1/routing/analyze</code>)</label>
+      </div>
+
+      <label for="instruction">Instruction text</label>
+      <textarea id="instruction" placeholder="Paste synthetic payer routing instructions…"></textarea>
+
+      <div class="row cols-2" style="margin-top:0.75rem">
+        <div>
+          <label for="payer">Payer name (guess)</label>
+          <input type="text" id="payer" placeholder="e.g. ACME Health Plans" />
+        </div>
+        <div>
+          <label for="plan">Plan name</label>
+          <input type="text" id="plan" placeholder="e.g. PPO Gold" />
+        </div>
+        <div>
+          <label for="cpt">CPT / HCPCS</label>
+          <input type="text" id="cpt" placeholder="97110" />
+        </div>
+        <div>
+          <label for="member4">Member ID last 4 (optional)</label>
+          <input type="text" id="member4" maxlength="4" placeholder="1234" />
+        </div>
+        <div>
+          <label for="setting">Setting</label>
+          <select id="setting">
+            <option value="unknown">unknown</option>
+            <option value="outpatient" selected>outpatient</option>
+            <option value="inpatient">inpatient</option>
+          </select>
+        </div>
+        <div>
+          <label for="urgency">Urgency</label>
+          <select id="urgency">
+            <option value="unknown">unknown</option>
+            <option value="standard" selected>standard</option>
+            <option value="urgent">urgent</option>
+          </select>
+        </div>
+        <div style="grid-column: 1 / -1">
+          <label for="facility">Facility / provider (optional)</label>
+          <input type="text" id="facility" placeholder="Clinic name" />
+        </div>
+      </div>
+
+      <div id="dialBlock" style="display:none">
+        <label for="dialTo">Outbound number (E.164)</label>
+        <input type="text" id="dialTo" placeholder="+15551234567" autocomplete="tel" />
+        <p class="hint">Requires Twilio + <code>PUBLIC_BASE_URL</code> (e.g. ngrok) in <code>.env</code>. Trial accounts can only call verified numbers.</p>
+      </div>
+
+      <div id="transcriptBlock">
+        <label for="transcript">Phone transcript (optional — full agent only)</label>
+        <textarea id="transcript" class="sm" placeholder="Paste redacted transcript after Voiceflow call…"></textarea>
+        <p class="hint">If provided, the pipeline runs the call-interpreter step and merges into the final decision.</p>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="run">Run</button>
+        <button type="button" id="poll" style="display:none">Poll call session</button>
+        <span class="tag" id="status">idle</span>
+      </div>
+      <p class="err" id="error" hidden></p>
+    </div>
+
+    <div class="card">
+      <label>Response</label>
+      <pre id="out">{}</pre>
+    </div>
+  </div>
+
+  <script>
+    function val(id) {
+      const el = document.getElementById(id);
+      return el ? el.value.trim() : "";
+    }
+
+    function buildCase() {
+      const c = {};
+      const payer = val("payer"); if (payer) c.payer_name_guess = payer;
+      const plan = val("plan"); if (plan) c.plan_name = plan;
+      const m = val("member4"); if (m) c.member_id_last4 = m;
+      const cpt = val("cpt"); if (cpt) c.cpt_or_hcpcs = cpt;
+      c.setting = document.getElementById("setting").value;
+      c.urgency = document.getElementById("urgency").value;
+      const fac = val("facility"); if (fac) c.facility_or_provider = fac;
+      return c;
+    }
+
+    function mode() {
+      const r = document.querySelector('input[name="mode"]:checked');
+      return r ? r.value : "agent";
+    }
+
+    let lastSessionId = null;
+
+    function syncModeUi() {
+      const m = mode();
+      const dial = m === "dial";
+      const agent = m === "agent";
+      document.getElementById("dialBlock").style.display = dial ? "block" : "none";
+      document.getElementById("transcriptBlock").style.display = dial ? "none" : "block";
+      document.getElementById("transcriptBlock").style.opacity = agent ? "1" : "0.45";
+      document.getElementById("transcript").disabled = !agent || dial;
+      document.getElementById("poll").style.display = lastSessionId && mode() === "dial" ? "inline-block" : "none";
+    }
+
+    document.querySelectorAll('input[name="mode"]').forEach((el) => {
+      el.addEventListener("change", () => { lastSessionId = null; syncModeUi(); });
+    });
+    syncModeUi();
+
+    document.getElementById("poll").addEventListener("click", async () => {
+      if (!lastSessionId) return;
+      const outEl = document.getElementById("out");
+      const st = document.getElementById("status");
+      st.textContent = "polling…";
+      try {
+        const res = await fetch("/v1/sessions/" + encodeURIComponent(lastSessionId));
+        const text = await res.text();
+        let json;
+        try { json = JSON.parse(text); } catch { json = { raw: text }; }
+        outEl.textContent = JSON.stringify(json, null, 2);
+        st.textContent = res.ok ? "polled" : "error";
+      } catch (e) {
+        outEl.textContent = String(e);
+        st.textContent = "error";
+      }
+    });
+
+    document.getElementById("run").addEventListener("click", async () => {
+      const errEl = document.getElementById("error");
+      const outEl = document.getElementById("out");
+      const st = document.getElementById("status");
+      const btn = document.getElementById("run");
+      errEl.hidden = true;
+      errEl.textContent = "";
+
+      const instruction_text = val("instruction");
+      if (!instruction_text) {
+        errEl.textContent = "Instruction text is required.";
+        errEl.hidden = false;
+        return;
+      }
+
+      const m = mode();
+      const body = { instruction_text, case: buildCase() };
+      if (m === "agent") {
+        const t = val("transcript");
+        if (t) body.phone_transcript = t;
+      }
+      if (m === "dial") {
+        const to = val("dialTo");
+        if (!to) {
+          errEl.textContent = "Dial mode requires outbound number in E.164 (e.g. +15551234567).";
+          errEl.hidden = false;
+          return;
+        }
+        body.outbound_dial = { to_e164: to };
+      }
+
+      lastSessionId = null;
+      document.getElementById("poll").style.display = "none";
+
+      const path =
+        m === "agent" ? "/v1/agent/run" : m === "dial" ? "/v1/agent/run-and-dial" : "/v1/routing/analyze";
+      btn.disabled = true;
+      st.textContent = "running…";
+
+      try {
+        const res = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const text = await res.text();
+        let json;
+        try { json = JSON.parse(text); } catch { json = { raw: text }; }
+        if (!res.ok) {
+          errEl.textContent = (json && json.detail) ? (typeof json.detail === "string" ? json.detail : JSON.stringify(json.detail, null, 2)) : text;
+          errEl.hidden = false;
+          outEl.textContent = JSON.stringify(json, null, 2);
+        } else {
+          outEl.textContent = JSON.stringify(json, null, 2);
+          if (m === "dial" && json.dial && json.dial.session_id) {
+            lastSessionId = json.dial.session_id;
+            document.getElementById("poll").style.display = "inline-block";
+          }
+        }
+        st.textContent = res.ok ? "ok" : "error";
+        syncModeUi();
+      } catch (e) {
+        errEl.textContent = String(e);
+        errEl.hidden = false;
+        st.textContent = "error";
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

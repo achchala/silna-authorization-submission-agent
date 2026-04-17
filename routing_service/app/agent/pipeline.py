@@ -73,7 +73,7 @@ def _phone_plan_from_state(
     )
 
 
-def _merge_call_into_final(
+def merge_call_into_final(
     base: ReconcileResult,
     call: CallInterpretation,
 ) -> tuple[RoutingAnalyzeResponse, Literal["merge_after_call", "research_after_call"]]:
@@ -191,7 +191,7 @@ def run_agent(*, api_key: str, model: str, body: AgentRunRequest) -> AgentRunRes
             response_model=CallInterpretation,
         )
         steps.append(StepRecord(name="call_interpreter", detail="structured transcript parse", payload=call.model_dump()))
-        final, branch = _merge_call_into_final(reconciled, call)
+        final, branch = merge_call_into_final(reconciled, call)
         steps.append(StepRecord(name="synthesize", detail="merged written + call", payload={"branch": branch}))
         return AgentRunResponse(final=final, steps=steps, branch_taken=branch)
 

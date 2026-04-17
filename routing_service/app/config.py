@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     gemini_api_key: str
     gemini_model: str = "gemini-2.0-flash"
 
+    # Optional: outbound confirmation calls via Twilio (https URL reachable from the internet, e.g. ngrok).
+    public_base_url: str | None = None
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_number: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

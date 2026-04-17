@@ -1,0 +1,11 @@
+{
+  "instruction_text": "ACME Health Plans — Prior Authorization routing (synthetic)\n\nFor commercial PPO members: submit outpatient rehabilitation via the ACME Care Portal.\nPortal: https://portal.example-payer.test/auth\n\nFor legacy fax-only accounts (listed on card back): fax clinical reviews to 1-800-555-0199.\n\nFooter (may be outdated): Fax all PT authorizations to 1-800-555-0142.",
+  "case": {
+    "payer_name_guess": "ACME Health Plans",
+    "plan_name": "ACME PPO Gold",
+    "cpt_or_hcpcs": "97110",
+    "setting": "outpatient",
+    "urgency": "standard",
+    "facility_or_provider": "Riverside Therapy LLC"
+  }
+}

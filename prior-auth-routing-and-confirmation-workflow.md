@@ -1,4 +1,4 @@
-# Planning document: prior authorization routing and confirmation 
+# Planning document: prior authorization routing and confirmation
 
 This document describes how I would plan an **internal** workflow at Silna whose job is to decide **where a given procedure or treatment authorization should be submitted**—which payer or channel, and with what destination details—and to **confirm by phone** when the written record is missing, ambiguous, or unreliable.
 
@@ -53,13 +53,15 @@ The workflow should assume **multiple people** might touch a case; the artifact 
 
 Everything the router sees should be normalized into a **case envelope** (names vary by implementation):
 
-| Category | Examples |
-|----------|----------|
-| Patient and coverage | Member ID, group, plan name, payer name, line of business if known |
-| Service | CPT/HCPCS, diagnosis pointers, place of service, inpatient vs outpatient, urgency |
-| Provider / facility | NPI, tax ID, site name, department, rendering vs billing provider as applicable |
-| Documents | Auth form, payer medical policy excerpt, referral, clinical notes, any “where to submit” page |
-| Silna context | Prior successful routes for same payer + provider pattern, internal overrides, known incidents |
+
+| Category             | Examples                                                                                       |
+| -------------------- | ---------------------------------------------------------------------------------------------- |
+| Patient and coverage | Member ID, group, plan name, payer name, line of business if known                             |
+| Service              | CPT/HCPCS, diagnosis pointers, place of service, inpatient vs outpatient, urgency              |
+| Provider / facility  | NPI, tax ID, site name, department, rendering vs billing provider as applicable                |
+| Documents            | Auth form, payer medical policy excerpt, referral, clinical notes, any “where to submit” page  |
+| Silna context        | Prior successful routes for same payer + provider pattern, internal overrides, known incidents |
+
 
 **OCR and layout:** scanned pages should retain **page and region references** so evidence can point to “page 3, block under ‘Submit requests to’” rather than a floating string.
 
@@ -78,6 +80,95 @@ Every run should emit a **routing decision object** (conceptually):
 7. **Human disposition** — approved, corrected, escalated to research, with optional free text.
 
 Downstream submission agents only need a subset, but QA and learning loops need the full object.
+
+---
+
+## 5a. System architecture: Agentic nodes
+
+The diagram below maps the pipeline to **implementable nodes**. “Agentic” here means a component that reasons over unstructured input, uses tools or policies adaptively, or runs a conversational / voice loop; **rules engines and curated tables** stay deterministic so routing stays auditable.
+
+```mermaid
+flowchart TB
+  subgraph inputs["Inputs"]
+    DOCS["Documents and scans"]
+    META["Case metadata and eligibility hints"]
+  end
+
+  subgraph stores["Silna systems of record - deterministic"]
+    PAYDIR["Payer directory"]
+    ROUTES["Routing tables"]
+    OVERR["Overrides"]
+    HIST["Historical successful routes"]
+  end
+
+  subgraph agents["Agentic nodes"]
+    A_INTAKE["Intake and case-envelope agent<br/>validates minimum fields, normalizes metadata"]
+    A_DOC["Document understanding agent<br/>OCR or layout, page anchors, quality signals"]
+    A_EXTRACT["Routing primitive extractor agent<br/>structured fields plus citations from docs"]
+    A_RESOLVE["Payer and plan resolver agent<br/>links text to directory candidates, surfaces ambiguity"]
+    A_RECON["Conflict reconciliation agent<br/>ranked channel or destination hypotheses with evidence"]
+    A_GATE["Routing confidence and policy agent<br/>maps signals to submit, call, or escalate"]
+    A_VOICE["Outbound voice confirmation agent<br/>scripted call, read-back, retry or voicemail policy"]
+    A_CALLPARSE["Call outcome interpreter agent<br/>ASR, entity extraction, validation vs written evidence"]
+    A_SYNTH["Decision synthesis agent<br/>merges doc, rule, history, and call under precedence policy"]
+  end
+
+  RULES[["Rules engine<br/>ordered overrides, tables, capped history"]]
+
+  subgraph hitl["Human in the loop"]
+    OPS["Ops or QA approve or correct"]
+    RESEARCH["Typed research queues"]
+  end
+
+  OUT["Routing decision object"]
+  DOWN["Downstream submission agents"]
+
+  DOCS --> A_DOC
+  META --> A_INTAKE
+  A_INTAKE --> A_DOC
+  A_DOC --> A_EXTRACT
+  A_EXTRACT --> A_RESOLVE
+  A_RESOLVE --> PAYDIR
+  A_EXTRACT --> RULES
+  RULES --> ROUTES
+  RULES --> OVERR
+  RULES --> HIST
+  A_RESOLVE --> RULES
+  RULES --> A_RECON
+  A_EXTRACT --> A_RECON
+  A_RECON --> A_GATE
+  A_GATE -->|"low confidence or hard conflict"| RESEARCH
+  A_GATE -->|"phone required by policy or tier"| A_VOICE
+  A_GATE -->|"ready to merge"| A_SYNTH
+  A_VOICE --> A_CALLPARSE
+  A_CALLPARSE -->|"transcript or entity risk"| OPS
+  A_CALLPARSE --> A_SYNTH
+  A_SYNTH --> OPS
+  OPS --> OUT
+  RESEARCH --> OUT
+  A_SYNTH --> OUT
+  OUT --> DOWN
+```
+
+
+
+### How this lines up with stages A–G
+
+
+| Stage                           | Architecture                                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| A — Ingest and normalize        | **Intake agent** plus **Document understanding agent**                                             |
+| B — Extract routing primitives  | **Routing primitive extractor agent**                                                              |
+| C — Resolve payer and plan      | **Payer and plan resolver agent** plus payer directory lookups                                     |
+| D — Rule-first routing          | **Rules engine** reading routing tables, overrides, and history (not an LLM)                       |
+| E — Interpretive reconciliation | **Conflict reconciliation agent** fed by primitives, rule output, and explicit conflict list       |
+| F — Phone confirmation          | **Outbound voice confirmation agent** then **Call outcome interpreter agent**                      |
+| G — Finalize and hand off       | **Decision synthesis agent**, then optional **Ops or QA** before the routing decision object ships |
+
+
+### Optional orchestration pattern
+
+In production you often wrap the agent row in a **workflow orchestrator** (temporal graph, state machine, or job queue) that owns retries, idempotency, and case versioning. That orchestrator is usually not “agentic”; it calls each node with a fixed contract so every step stays replayable for audits.
 
 ---
 
@@ -187,11 +278,13 @@ The call script should map answers into fields, for example:
 
 Define thresholds up front (numbers can be tuned in pilot):
 
-| Tier | Meaning | Typical next step |
-|------|---------|-------------------|
-| High | Single channel, strong evidence, OCR OK, aligns with rules/history | May proceed to internal auto-submit **if** Silna approves that autonomy for this payer/channel class |
-| Medium | Likely correct but one weak signal | Phone confirmation or human quick-approve |
-| Low | Conflict, missing destination, bad OCR on critical digits | Human research; no autonomous submit |
+
+| Tier   | Meaning                                                            | Typical next step                                                                                    |
+| ------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| High   | Single channel, strong evidence, OCR OK, aligns with rules/history | May proceed to internal auto-submit **if** Silna approves that autonomy for this payer/channel class |
+| Medium | Likely correct but one weak signal                                 | Phone confirmation or human quick-approve                                                            |
+| Low    | Conflict, missing destination, bad OCR on critical digits          | Human research; no autonomous submit                                                                 |
+
 
 **Escalation queues** should be typed: “missing payer,” “conflicting fax numbers,” “portal access unknown,” etc., so product can see systemic gaps.
 
